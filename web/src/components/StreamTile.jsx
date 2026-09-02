@@ -42,6 +42,7 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
           return
         }
         player = createLowBitratePlayer(videoRef.current, s.url, {
+          format: s.format, // relay 改写后 URL 无 .flv 后缀，需显式告知格式
           onError: (msg) => {
             if (cancelled) return
             setError(msg)
