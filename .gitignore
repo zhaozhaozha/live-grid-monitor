@@ -13,3 +13,11 @@ npm-debug.log*
 *.db
 *.db-wal
 *.db-shm
+
+# 托管 workspace 符号链接（沙箱内 npm 受限的替代方案）
+node_modules
+server/node_modules
+web/node_modules
+
+# vite 临时文件
+*.timestamp-*.mjs
