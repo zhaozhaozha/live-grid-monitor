@@ -239,6 +239,14 @@ export class DouyinAdapter extends BaseAdapter {
     // reflow 通道：roomInfo.raw.streamUrl 自包含多档地址
     const reflow = opts.roomInfo?.raw?.reflow
     if (reflow) {
+      // 回放态(status!=2)reflow 页仍内嵌回放流地址，但本系统监控的是实时直播，
+      // 一律按未开播处理，避免把回放流当直播拉取
+      if (!opts.roomInfo?.isLive) {
+        throw new AdapterError('主播当前未开播（reflow 回放态）', {
+          code: 'NOT_LIVE',
+          retryable: false,
+        })
+      }
       const su = opts.roomInfo.raw.streamUrl || {}
       const flvMap = su.flvPullUrl || {}
       const hlsMap = su.hlsPullUrlMap || (su.hlsPullUrl ? { hd: su.hlsPullUrl } : {})

@@ -16,39 +16,54 @@ const PLATFORM_REFERER = {
 }
 
 export default async function streamsRoutes(app) {
+  /**
+   * 代拉上游 flv 并回传。stale 时尝试 force 重拉一次：
+   * 缓存里的流 URL 带 auth_key，可能中途过期（CDN 拒连 403/302 到错误页），
+   * 此时强制刷新流地址再试一次，避免整条 relay 因过期 URL 长期 502。
+   */
+  async function relayUpstream(room, { signal } = {}) {
+    const referer = PLATFORM_REFERER[room.platform] || ''
+    const attempt = async (force) => {
+      const s = await getPlayableStream(room, { force })
+      if (s.format !== 'flv') {
+        const err = new Error(`relay 当前仅支持 flv，实际 ${s.format}`)
+        err.code = 'NOT_FLV'
+        throw err
+      }
+      // 上游 8s 内必须建立连接并返回响应头，否则视为不可拉（回放态/防盗链 hang 场景），
+      // 避免浏览器侧 mpegts.js 无限等待
+      const up = await fetch(s.url, {
+        headers: { 'User-Agent': config.userAgent, Referer: referer },
+        redirect: 'follow',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
+      })
+      return { upstream: up, url: s.url }
+    }
+    let { upstream, url } = await attempt(false)
+    // 非 2xx：取消后强制刷新流地址（auth_key 过期等）再试一次
+    if (!upstream.ok) {
+      try { upstream.body?.cancel() } catch {}
+      upstream = (await attempt(true)).upstream
+    }
+    return { upstream, url }
+  }
+
   // 先注册更具体的 /relay，否则会被 :roomId 截走
   app.get('/:roomId/relay', async (req, reply) => {
     const db = getDb()
     const room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(req.params.roomId)
     if (!room) return reply.code(404).send({ error: '房间不存在' })
-    let s
-    try {
-      s = await getPlayableStream(room, { force: req.query.force === '1' })
-    } catch (err) {
-      return reply.code(err instanceof AdapterError ? 422 : 500).send({
-        error: err.message,
-        code: err.code || 'ERROR',
-        hint: err.hint || '',
-      })
-    }
-    if (s.format !== 'flv') {
-      return reply.code(400).send({ error: 'relay 当前仅支持 flv', format: s.format })
-    }
-    const referer = PLATFORM_REFERER[room.platform] || ''
     const ac = new AbortController()
-    let upstream
+    let upstream, url
     try {
-      upstream = await fetch(s.url, {
-        headers: { 'User-Agent': config.userAgent, Referer: referer },
-        redirect: 'follow',
-        signal: ac.signal,
-      })
+      ;({ upstream, url } = await relayUpstream(room, { signal: ac.signal }))
     } catch (err) {
-      return reply.code(502).send({ error: '上游拉流失败：' + err.message })
+      const status = err.code === 'NOT_FLV' ? 400 : 502
+      return reply.code(status).send({ error: err.message })
     }
     if (!upstream.ok || !upstream.body) {
       try { upstream.body?.cancel() } catch {}
-      return reply.code(502).send({ error: `上游响应 ${upstream.status}` })
+      return reply.code(502).send({ error: `上游响应 ${upstream.status}（${url?.slice(0, 60)}…）` })
     }
     reply.header('Access-Control-Allow-Origin', '*')
     reply.header('Cache-Control', 'no-store')
