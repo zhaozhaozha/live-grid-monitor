@@ -63,13 +63,23 @@ export async function getPlayableStream(room, { force = false } = {}) {
     if (room.platform !== 'direct') throw err
   }
 
-  const stream = await adapter.fetchStreamUrl(info.roomId || key, {
-    cookie: room.cookie,
-    quality: room.quality || 'lowest',
-    webRid: info.webRid,
-    shareUrl: room.share_url,
-    roomInfo: info,
-  })
+  let stream
+  try {
+    stream = await adapter.fetchStreamUrl(info.roomId || key, {
+      cookie: room.cookie,
+      quality: room.quality || 'lowest',
+      webRid: info.webRid,
+      shareUrl: room.share_url,
+      roomInfo: info,
+    })
+  } catch (err) {
+    // 主播已下播(NOT_LIVE):旧缓存里的流地址已失效(如抖音回放态),
+    // 若不清除会被非 force 请求持续命中,前端拉到已结束的流反复报错。
+    if (err instanceof AdapterError && err.code === 'NOT_LIVE') {
+      db.prepare('DELETE FROM stream_cache WHERE room_id = ?').run(room.id)
+    }
+    throw err
+  }
 
   db.prepare(
     `INSERT INTO stream_cache (room_id, stream_url, format, quality, qualities, expires_at, updated_at)

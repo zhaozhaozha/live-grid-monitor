@@ -98,6 +98,7 @@ export function createLowBitratePlayer(videoEl, url, { format, onError, onStats 
           autoCleanupSourceBuffer: true,
         }
       )
+      let hevcTerminal = false // HEVC 解码失败为终态,后续 IO/EOF 错误不得覆盖提示
       player.attachMediaElement(videoEl)
       player.load()
       player.play().catch(() => {})
@@ -115,8 +116,11 @@ export function createLowBitratePlayer(videoEl, url, { format, onError, onStats 
           })
           .join(' | ')
         if (/HEVC|hvcC|HEVCDecoder|H\.265|codecid.?12/i.test(raw)) {
+          hevcTerminal = true
           return fail('该直播间为 H.265/HEVC 编码，当前浏览器不支持解码（可换 Chrome 新版本或有硬解的浏览器）')
         }
+        // HEVC 不可恢复:解码器报错后 mpegts 会连带抛 IO/EOF 噪声,不能覆盖上面的终态提示
+        if (hevcTerminal) return
         const m = raw.match(/(\d{3})\s*(?:\(|$)/)
         const code = m ? m[1] : ''
         fail(`FLV 播放错误：${(raw.split(' | ').find((x) => x && x !== 'undefined') || 'unknown').slice(0, 80)}${code ? ` (${code})` : ''}`)

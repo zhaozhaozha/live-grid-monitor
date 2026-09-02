@@ -14,14 +14,21 @@ async function req(path, options = {}) {
   }
   if (!res.ok) {
     let msg = `请求失败 HTTP ${res.status}`
+    let j = null
     try {
-      const j = await res.json()
-      msg = j.error || msg
-      if (j.hint) msg += `（${j.hint}）`
+      j = await res.json()
     } catch {
       /* 非 JSON 响应 */
     }
-    throw new Error(msg)
+    if (j) {
+      msg = j.error || msg
+      if (j.hint) msg += `（${j.hint}）`
+    }
+    // 透传服务端业务 code(如 NOT_LIVE),供调用方区分「未开播」与「真异常」
+    const e = new Error(msg)
+    if (j?.code) e.code = j.code
+    if (j?.hint) e.hint = j.hint
+    throw e
   }
   const ct = res.headers.get('content-type') || ''
   return ct.includes('json') ? res.json() : res.text()
