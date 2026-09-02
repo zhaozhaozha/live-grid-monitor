@@ -1,0 +1,19 @@
+{
+  "name": "live-grid-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "多平台直播间九宫格监控台：低码率多画面预览 + 开播时长/在线人数/广告时段自动采集 + 数据报表",
+  "scripts": {
+    "dev": "npm --workspace server run dev & npm --workspace web run dev",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build",
+    "start": "npm --workspace server run start",
+    "test": "npm --workspace server run test",
+    "postinstall": "echo '→ 接下来请分别执行：cd server && npm install && cd ../web && npm install'"
+  },
+  "workspaces": ["server", "web"],
+  "engines": { "node": ">=18.18" },
+  "license": "MIT"
+}

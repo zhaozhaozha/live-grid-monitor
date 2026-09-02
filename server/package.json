@@ -1,0 +1,23 @@
+{
+  "name": "@live-grid/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "live-grid-monitor 后端：平台适配器 + 数据采集 + 报表",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "node scripts/smoke.mjs",
+    "poll:once": "node -e \"import('./src/services/poller.js').then(m=>m.tick().then(r=>console.log(JSON.stringify(r,null,2))))\""
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@fastify/static": "^7.0.4",
+    "better-sqlite3": "^11.3.0",
+    "fastify": "^4.28.1"
+  }
+}
