@@ -33,7 +33,8 @@ export default function AddRoomDialog({ open, onClose, onAdded, occupiedSlots = 
       const r = await api.parseRoom(url.trim(), platform === 'auto' ? undefined : platform, cookie || undefined)
       setPreview(r)
     } catch (err) {
-      setError(err.message)
+      setError(`${err.message}${err.hint ? ` —— ${err.hint}` : ''}（仍可直接添加到宫格，稍后补 Cookie 或刷新重试）`)
+      setPreview(null)
     } finally {
       setBusy(false)
     }
@@ -72,7 +73,7 @@ export default function AddRoomDialog({ open, onClose, onAdded, occupiedSlots = 
             <input
               autoFocus
               value={url}
-              placeholder="粘贴抖音 / 快手 / 淘宝 / 视频号 / 小红书的直播间链接，或 m3u8 / flv 直链"
+              placeholder="粘贴抖音 / 京东 / 淘宝 / 快手 / 视频号 / 小红书的直播间链接，或 m3u8 / flv 直链"
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleParse()}
             />
@@ -112,7 +113,7 @@ export default function AddRoomDialog({ open, onClose, onAdded, occupiedSlots = 
         <label className="field">
           <span>
             Cookie（选填）
-            <em>抖音 / 快手遇到风控时填写，否则留空</em>
+            <em>抖音 / 快手 / 淘宝遇到风控或需登录态时填写，否则留空</em>
           </span>
           <textarea rows={2} value={cookie} onChange={(e) => setCookie(e.target.value)} placeholder="从浏览器复制的完整 Cookie 字符串" />
         </label>

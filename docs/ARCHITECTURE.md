@@ -135,6 +135,20 @@ live-grid-monitor/
   → AD→LIVE：POST /api/metrics/ad-segments/:id/close   结算时长（<5s 丢弃）
 ```
 
+## 4.5 平台适配器现状（2026-09 实测）
+
+| 适配器 | 状态 | 说明 |
+|---|---|---|
+| `douyin` | `stable` | 免登录取流（房间 enter 接口），风控时可注入 Cookie |
+| `kuaishou` | `experimental` | 建议配 Cookie |
+| `taobao` | `experimental` | mtop 通道：`appKey=12574478` + `md5(token&t&appKey&data)` 老式签名，出流依赖登录 Cookie（`_m_h5_tk`）。若接口升级 mtgsig 强签名则老通道被拒 → 响应里做了**流地址启发式兜底**（递归抓 .m3u8/.flv），仍失败则引导抓包直链 |
+| `jd` | `experimental` | **实测 web 端直播已下线**：`live.jd.com` 仅剩跳转壳，`functionId=liveDetail` 老接口返回 `the current API does not exist`。适配器保留链接识别 + liveId 提取（可作占位房间），失败指引 → 京东 App / 浏览器抓包直链 |
+| `wxchannel` / `xiaohongshu` | `stub` | 无公开 Web 接口 / 需动态签名，仅 URL 识别 + 骨架 |
+| `direct` | `stable` | 兜底：m3u8 / flv 直链，也是所有平台的「抓包接入」通道 |
+
+解析失败不再阻止添加房间：`POST /api/rooms` 会以**占位房间**保存（附 `last_error`），
+宫格上显示原因，可补 Cookie 或「刷新流地址」重试。
+
 ## 5. 扩展指南：新增一个平台
 
 以「视频号」为例（骨架已存在，只需补三个方法）：

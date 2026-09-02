@@ -34,8 +34,12 @@ const cases = [
   ['https://v.douyin.com/iRabcdef/', 'douyin'],
   ['https://live.kuaishou.com/u/zhangsan', 'kuaishou'],
   ['https://tb.cn/abc123', 'taobao'],
+  ['https://m.tb.cn/h.abc123', 'taobao'],
   ['https://channels.weixin.qq.com/live/xyz', 'wxchannel'],
   ['https://www.xiaohongshu.com/user/profile/abc', 'xiaohongshu'],
+  ['https://live.jd.com/3158482', 'jd'],
+  ['https://h5.m.jd.com/dev/3pbY8ZuCx4ML99uttZKLHC2QcAMn/live.html?id=1807004', 'jd'],
+  ['https://3.cn/1A2b3C', 'jd'],
   ['https://cdn.example.com/live/room.m3u8', 'direct'],
   ['https://cdn.example.com/live/room.flv', 'direct'],
 ]
@@ -43,9 +47,12 @@ for (const [url, expect] of cases) {
   const got = detectPlatform(url)
   ok(`${url.slice(0, 46)} -> ${got}`, got === expect, `期望 ${expect}`)
 }
-ok('平台清单 6 个', Object.keys(listAdapters()).length === 6)
+ok('平台清单 7 个', Object.keys(listAdapters()).length === 7)
 ok('抖音标记为 stable', listAdapters().douyin.stability === 'stable')
-ok('淘宝标记为 stub', listAdapters().taobao.stability === 'stub')
+ok('淘宝标记为 experimental', listAdapters().taobao.stability === 'experimental')
+ok('京东标记为 experimental', listAdapters().jd.stability === 'experimental')
+ok('淘宝需要 Cookie', listAdapters().taobao.needCookie === true)
+ok('京东不需要 Cookie', listAdapters().jd.needCookie === false)
 
 console.log('\n=== 3. 直链适配器（无需网络） ===')
 const direct = getAdapter('direct')
@@ -57,13 +64,26 @@ const flv = await direct.fetchStreamUrl('https://cdn.example.com/live/room.flv')
 ok('流格式判定为 flv', flv.format === 'flv', flv.format)
 
 console.log('\n=== 4. 未实现平台应抛出可操作错误 ===')
-for (const p of ['taobao', 'wxchannel', 'xiaohongshu']) {
+for (const p of ['wxchannel', 'xiaohongshu']) {
   const a = getAdapter(p)
   let err = null
   try { await a.fetchRoomInfo('https://x') } catch (e) { err = e }
   ok(`${p} 抛出 NOT_IMPLEMENTED`, err?.code === 'NOT_IMPLEMENTED')
   ok(`${p} 带 hint 提示`, Boolean(err?.hint))
 }
+
+console.log('\n=== 4.5 京东 / 淘宝适配器静态契约（不触网） ===')
+const jd = getAdapter('jd')
+ok('京东 live.html?id 提取 liveId', jd.parseRoomId('https://h5.m.jd.com/dev/3pbY8ZuCx4ML99uttZKLHC2QcAMn/live.html?id=1807004&position=0') === '1807004')
+ok('京东 live.jd.com/<id> 提取', jd.parseRoomId('https://live.jd.com/3158482') === '3158482')
+ok('京东短链可识别', jd.matchUrl('https://u.jd.com/xA1b2C'))
+const jdBad = jd.parseRoomId('https://www.jd.com/') === null
+ok('京东非直播页不产出 liveId', jdBad)
+const taobao = getAdapter('taobao')
+ok('淘宝 taolive/video.html?id 提取 liveId', taobao.parseRoomId('https://h5.m.taobao.com/taolive/video.html?id=209306221322') === '209306221322')
+ok('淘宝 detail.html?liveId 提取', taobao.parseRoomId('https://market.m.taobao.com/app/fm-live/live-house/detail.html?liveId=209306221322&x=1') === '209306221322')
+ok('淘宝 m.tb.cn 短链可识别', taobao.matchUrl('https://m.tb.cn/h.abc123'))
+ok('京东/淘宝 experimental 不抛 NOT_IMPLEMENTED（元信息方法存在）', typeof jd.fetchRoomInfo === 'function' && typeof taobao.fetchStreamUrl === 'function')
 
 console.log('\n=== 5. 插入房间 + 采集流程 ===')
 const ts = nowIso()

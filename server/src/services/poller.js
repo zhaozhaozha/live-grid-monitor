@@ -14,6 +14,10 @@ import { config } from '../config.js'
  * 避免平台接口抖动导致一场直播被切成多段。
  */
 const offlineStreak = new Map()
+/** 房间级失败退避：{ roomId: { fails, until } }，避免对风控/下线接口高频重试 */
+const failureBackoff = new Map()
+const BACKOFF_MIN_MS = 5 * 60 * 1000
+const BACKOFF_MAX_MS = 60 * 60 * 1000
 
 let timer = null
 let running = false
@@ -34,23 +38,45 @@ export function stopPoller() {
   timer = null
 }
 
+/** 供测试/手动恢复使用：清空某房间的失败退避 */
+export function clearBackoff(roomId) {
+  failureBackoff.delete(roomId)
+}
+
 export async function tick() {
   if (running) return { skipped: true }
   running = true
   const db = getDb()
   const rooms = db.prepare('SELECT * FROM rooms WHERE enabled = 1').all()
   const results = []
+  const now = Date.now()
 
   for (const room of rooms) {
+    const backoff = failureBackoff.get(room.id)
+    if (backoff && backoff.until > now) {
+      results.push({
+        roomId: room.id,
+        ok: false,
+        skipped: true,
+        error: `解析接口连续失败，已退避 ${Math.round((backoff.until - now) / 60000)} 分钟后重试`,
+      })
+      continue
+    }
     try {
-      results.push(await pollRoom(room))
+      const r = await pollRoom(room)
+      failureBackoff.delete(room.id)
+      results.push(r)
     } catch (err) {
+      const prev = failureBackoff.get(room.id) || { fails: 0, until: 0 }
+      const fails = prev.fails + 1
+      const wait = Math.min(BACKOFF_MAX_MS, fails * BACKOFF_MIN_MS)
+      failureBackoff.set(room.id, { fails, until: Date.now() + wait })
       db.prepare('UPDATE rooms SET last_error = ?, updated_at = ? WHERE id = ?').run(
-        String(err.message).slice(0, 500),
+        `${String(err.message).slice(0, 400)}（接口暂不可用，${Math.round(wait / 60000)} 分钟后自动重试）`,
         nowIso(),
         room.id
       )
-      results.push({ roomId: room.id, ok: false, error: err.message })
+      results.push({ roomId: room.id, ok: false, error: err.message, backoffMs: wait })
     }
   }
   running = false

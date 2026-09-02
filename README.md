@@ -32,14 +32,23 @@
 |---|---|---|---|
 | 抖音 | ✅ | ✅ | `stable` |
 | 快手 | ✅ | ✅ | `experimental`（建议配 Cookie） |
+| 淘宝直播 | ⚠️ | ⚠️ | `experimental`（Cookie 通道，详见下方说明） |
+| 京东直播 | ⚠️ | ❌ | `experimental`（web 端入口已下线，见下方说明） |
 | m3u8 / flv 直链 | ✅ | ❌ | `stable`（兜底 + 联调通道） |
-| 淘宝直播 | ❌ | ❌ | `stub` — 流地址绑定登录态 + mtgsig 签名 |
 | 微信视频号 | ❌ | ❌ | `stub` — 无公开 Web 接口 |
 | 小红书 | ❌ | ❌ | `stub` — 需 x-s / x-t 动态签名 |
 
-> `stub` 平台适配器骨架、URL 识别、错误提示都已就位，
-> 补全三个方法即可启用 —— 见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#5-扩展指南新增一个平台)。
-> 在这之前，可用浏览器抓包拿到 m3u8 直链，通过「直链适配器」接入。
+### 淘宝 / 京东的 `experimental` 边界
+
+- **淘宝**：流地址由 mtop 接口下发，需登录 Cookie（含 `_m_h5_tk`）；部分接口已升级 mtgsig 强签名，
+  老通道被拒时请把抓包得到的直链用「直链」模式接入（不受签名影响）。在线人数视接口返回而定。
+- **京东**：2026 年实测 web 端直播入口已下线（`live.jd.com` 跳转 `jd.com`，老公开接口关闭），
+  服务端无法直接解析流地址 → 请在京东 App / 浏览器抓包拿 `.m3u8`/`.flv` 直链接入。
+  适配器保留链接识别与 liveId 提取，可先作为占位房间保存。
+
+> 解析失败不再阻止添加：任何平台的分享链接都会以**占位房间**保存（宫格上显示失败原因），
+> 可稍后补 Cookie 或「刷新流地址」重试；想立刻看到画面就走「直链」模式。
+> 新平台接入指南见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#5-扩展指南新增一个平台)。
 
 ## 🚀 快速开始
 
@@ -91,6 +100,7 @@ cd ../server && npm install --omit=dev && PORT=8787 npm start
 | `AD_SCORE_THRESHOLD` | `0.62` | 广告识别默认阈值 |
 | `DOUYIN_COOKIE` | — | 抖音 Cookie（遇风控时填） |
 | `KUAISHOU_COOKIE` | — | 快手 Cookie |
+| `TAOBAO_COOKIE` | — | 淘宝 Cookie（须含 `_m_h5_tk`，出流依赖登录态） |
 
 ### 抖音/快手提示风控怎么办？
 
@@ -103,7 +113,7 @@ cd ../server && npm install --omit=dev && PORT=8787 npm start
 cd server && npm test
 ```
 
-30 项冒烟测试，覆盖平台识别、适配器降级、场次生命周期、广告段结算、报表聚合。
+43 项冒烟测试，覆盖平台识别、适配器契约与降级提示、场次生命周期、广告段结算、报表聚合。
 **不需要**安装 `fastify` / `better-sqlite3` 即可运行（会回落到内置 `node:sqlite`）。
 
 ## 📁 文档

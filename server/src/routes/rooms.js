@@ -1,4 +1,4 @@
-import { getDb, nowIso, uid } from '../db/index.js'
+import { getDb, nowIso, uid, nn } from '../db/index.js'
 import { detectPlatform, listAdapters } from '../adapters/index.js'
 import { resolveRoomInfo } from '../services/streamResolver.js'
 import { closeAllSessions } from '../services/poller.js'
@@ -106,11 +106,9 @@ export default async function roomsRoutes(app) {
         isLive: Boolean(r.isLive ?? r.is_live),
       }
     } catch (err) {
-      // stub 平台解析必然失败，允许先占位保存，后续用直链补
-      parseError = err.message
-      if (key !== 'direct') {
-        return reply.code(422).send({ error: err.message, code: err.code, hint: err.hint })
-      }
+      // 1.0 策略：解析失败也允许占位保存（direct / experimental / stub 平台都可能暂不可解析）。
+      // 房间会带着分享链接进入列表，宫格上显示解析失败原因，可稍后补 Cookie 或「刷新流地址」重试。
+      parseError = err.message || String(err)
     }
 
     // 自动分配宫格位置
@@ -153,7 +151,10 @@ export default async function roomsRoutes(app) {
       ts
     )
 
-    return reply.code(201).send({ item: mapRoom(db.prepare('SELECT * FROM rooms WHERE id = ?').get(id)) })
+    return reply.code(201).send({
+      item: mapRoom(db.prepare('SELECT * FROM rooms WHERE id = ?').get(id)),
+      ...(parseError ? { warning: parseError } : {}),
+    })
   })
 
   app.patch('/:id', async (req, reply) => {

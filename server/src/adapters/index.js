@@ -1,6 +1,8 @@
 import { DouyinAdapter } from './douyin.js'
 import { KuaishouAdapter } from './kuaishou.js'
-import { TaobaoAdapter, WxChannelAdapter, XiaohongshuAdapter } from './stub.js'
+import { TaobaoAdapter } from './taobao.js'
+import { WxChannelAdapter, XiaohongshuAdapter } from './stub.js'
+import { JdAdapter } from './jd.js'
 import { DirectAdapter } from './direct.js'
 import { AdapterError } from './base.js'
 
@@ -10,6 +12,7 @@ const ADAPTER_CLASSES = [
   TaobaoAdapter,
   WxChannelAdapter,
   XiaohongshuAdapter,
+  JdAdapter,
 ]
 
 let registry = new Map()
@@ -32,7 +35,7 @@ export function listAdapters() {
     const Ctor = inst.constructor
     map[key] = {
       ...Ctor.describe(),
-      needCookie: ['douyin', 'kuaishou'].includes(key),
+      needCookie: ['douyin', 'kuaishou', 'taobao'].includes(key),
     }
   }
   return map

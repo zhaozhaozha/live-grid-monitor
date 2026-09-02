@@ -3,13 +3,12 @@ import { BaseAdapter, AdapterError } from './base.js'
 /**
  * 未实现平台的统一占位适配器。
  *
- * 淘宝直播 / 微信视频号 / 小红书在 1.0 处于 stub 状态，原因：
- *  - 淘宝直播：流地址与流量数据均绑定登录态与 mtgsig 签名，网页端强加密；
- *    生产方案通常是「浏览器扩展 / 无头浏览器带登录态抓取」或企业开放平台授权。
- *  - 微信视频号：无公开 Web 端接口，仅支持客户端内播放与小程序登录态。
+ * 当前 stub 状态平台：
+ *  - 微信视频号：无公开 Web 端接口，仅支持微信客户端内播放与小程序登录态。
  *  - 小红书：直播接口需 x-s / x-t 签名，且风控更新频繁。
+ *  （淘宝直播已升级为独立 experimental 适配器，见 adapters/taobao.js）
  *
- * 1.0 保留适配器骨架与 URL 识别能力，接入路径已在 docs/ARCHITECTURE.md 说明。
+ * 保留适配器骨架与 URL 识别能力，接入路径已在 docs/ARCHITECTURE.md 说明。
  */
 class StubAdapter extends BaseAdapter {
   #reason
@@ -37,22 +36,6 @@ class StubAdapter extends BaseAdapter {
   }
   async fetchMetrics() {
     this.#fail('fetchMetrics')
-  }
-}
-
-export class TaobaoAdapter extends StubAdapter {
-  static platform = 'taobao'
-  static label = '淘宝直播'
-  static stability = 'stub'
-  static urlHints = ['https://tb.cn/xxxx', 'https://huodong.m.taobao.com/...']
-  matchUrl(url) {
-    return /taobao\.com|tb\.cn|tmall\.com/.test(url)
-  }
-  constructor() {
-    super(
-      '流地址与数据绑定登录态 + mtgsig 签名，纯服务端难以稳定解析',
-      '建议使用「直链适配器」：在浏览器装抓包插件取到 m3u8 后粘贴；或接入淘宝开放平台授权'
-    )
   }
 }
 

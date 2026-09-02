@@ -80,7 +80,7 @@
 { "error":"未取到流地址，可能需要配置有效 Cookie", "code":"NO_STREAM", "hint":"在 .env 中设置 DOUYIN_COOKIE 后重试" }
 ```
 
-错误码：`PARSE_FAILED` / `ROOM_NOT_FOUND` / `NOT_LIVE` / `NO_STREAM` / `API_ERROR` / `NOT_IMPLEMENTED` / `TIMEOUT` / `NETWORK` / `HTTP_ERROR` / `UNKNOWN_PLATFORM`。
+错误码：`PARSE_FAILED` / `ROOM_NOT_FOUND` / `NOT_LIVE` / `NO_STREAM` / `API_ERROR` / `API_DEPRECATED`（京东入口下线） / `RISK_CONTROL`（淘宝签名/风控） / `NOT_IMPLEMENTED` / `TIMEOUT` / `NETWORK` / `HTTP_ERROR` / `UNKNOWN_PLATFORM`。
 
 ### `POST /api/rooms`
 
@@ -95,6 +95,13 @@
 | `quality` | string | 默认 `lowest` |
 
 占满 9 格返回 `409`。
+
+解析行为（1.0）：**分享链接解析失败不再拒绝添加**——返回 `201` 并携带 `warning` 字段
+（失败原因），房间以占位状态保存（`last_error` 有值），可补 Cookie 或「刷新流地址」重试：
+
+```json
+{ "item": { "id":"room_xxx", "...": "..." }, "warning": "京东直播 web 端入口已下线..." }
+```
 
 ### `PATCH /api/rooms/:id`
 
