@@ -43,9 +43,10 @@ export const config = {
     'USER_AGENT',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
   ),
-  /** 兜底 Cookie：DOUYIN_COOKIE / KUAISHOU_COOKIE 等按平台注入 */
+  /** 兜底 Cookie：DOUYIN_COOKIE / JD_COOKIE / KUAISHOU_COOKIE 等按平台注入 */
   cookies: {
     douyin: env('DOUYIN_COOKIE', ''),
+    jd: env('JD_COOKIE', ''),
     kuaishou: env('KUAISHOU_COOKIE', ''),
     taobao: env('TAOBAO_COOKIE', ''),
     wxchannel: env('WXCHANNEL_COOKIE', ''),

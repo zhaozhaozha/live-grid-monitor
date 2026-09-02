@@ -52,7 +52,7 @@ ok('抖音标记为 stable', listAdapters().douyin.stability === 'stable')
 ok('淘宝标记为 experimental', listAdapters().taobao.stability === 'experimental')
 ok('京东标记为 experimental', listAdapters().jd.stability === 'experimental')
 ok('淘宝需要 Cookie', listAdapters().taobao.needCookie === true)
-ok('京东不需要 Cookie', listAdapters().jd.needCookie === false)
+ok('京东需要 Cookie（标题/在线；出流匿名即可）', listAdapters().jd.needCookie === true)
 
 console.log('\n=== 3. 直链适配器（无需网络） ===')
 const direct = getAdapter('direct')

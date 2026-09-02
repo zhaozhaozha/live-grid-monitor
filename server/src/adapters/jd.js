@@ -11,10 +11,17 @@ import { config } from '../config.js'
  *      getImmediatePlayToM —— 返回正在播/预告的房间与播放地址
  *        { code:'0', data:{ liveId, status, h5VideoUrl(flv), h5VideoUrl(m3u8),
  *                           videoUrl, nowTime, slide:{pre,next} } }
- *        实测匿名可调、无需 eid 指纹、无需登录 Cookie。
- *      liveDetailToM —— 房间详情（标题/主播等），实测匿名返回空，疑似需登录态。
+ *        实测匿名可调、无需 eid 指纹、无需登录 Cookie；但不含标题/主播字段。
+ *      liveDetailToM —— 房间详情（标题/主播等），实测匿名返回空 / 403，
+ *        需微信或京东 App 的登录 Cookie 才可取。
+ *  - 列表接口（liveDefaultListToM 等）匿名需 eid 风控指纹（JS 指纹 SDK 生成），
+ *    REST 客户端无法伪造，故“列表反查标题”的匿名方案不可行。
  *  - 在线人数走推送通道（type:"get_statistics_result", body.total_viwer），
- *    非 REST 可轮询，1.0 不实现，onlineCount 返回 null。
+ *    鉴权接口 liveauth 匿名失败（需登录态），非 REST 可轮询。
+ *  - 因此标题/主播/实时在线三者的先决条件都是【京东登录 Cookie】。
+ *    适配器已支持：房间级 opts.cookie 或 .env JD_COOKIE（经 base.cookieFor 注入）；
+ *    有 Cookie 时自动调 liveDetailToM 回填标题/主播（字段名待真 Cookie 首验）。
+ *    无 Cookie 时标题给占位「京东直播 #<liveId>」（避免格子显示整条分享 URL）。
  *  - 播放地址单一清晰度（_fhd），平台未提供更低档，取接口返回的唯一档。
  */
 const GW = 'https://api.m.jd.com/client.action'
@@ -65,8 +72,8 @@ export class JdAdapter extends BaseAdapter {
     return u
   }
 
-  /** 调 api.m.jd.com 网关（POST，参数放 form body + query） */
-  async #gateway(functionId, bodyObj, extraQs = {}) {
+  /** 调 api.m.jd.com 网关（POST，参数放 form body + query）；cookie 为空则匿名 */
+  async #gateway(functionId, bodyObj, cookie = '') {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), config.requestTimeoutMs)
     try {
@@ -74,16 +81,17 @@ export class JdAdapter extends BaseAdapter {
         appid: APPID,
         functionId,
         t: String(Date.now()),
-        ...extraQs,
       })
+      const headers = {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        Referer: 'https://lives.jd.com/',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      }
+      if (cookie) headers.Cookie = cookie // 有登录态才带，避免匿名请求被风控收紧
       const res = await fetch(`${GW}?${qs}`, {
         method: 'POST',
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-          Referer: 'https://lives.jd.com/',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers,
         body: new URLSearchParams({ body: JSON.stringify(bodyObj) }).toString(),
         signal: ac.signal,
       })
@@ -104,12 +112,16 @@ export class JdAdapter extends BaseAdapter {
   }
 
   /** 现行主接口：即时播放信息（流地址 + 直播状态），匿名可调 */
-  async #immediatePlay(liveId) {
-    const j = await this.#gateway('getImmediatePlayToM', {
-      liveId: String(liveId),
-      isLookupLiveId: true,
-      pageId: 'liveRoom',
-    })
+  async #immediatePlay(liveId, cookie = '') {
+    const j = await this.#gateway(
+      'getImmediatePlayToM',
+      {
+        liveId: String(liveId),
+        isLookupLiveId: true,
+        pageId: 'liveRoom',
+      },
+      cookie
+    )
     if (j.code !== '0' || !j.data) {
       throw new AdapterError(`京东接口返回异常：code=${j.code} subCode=${j.subCode}`, {
         code: 'API_ERROR',
@@ -118,6 +130,33 @@ export class JdAdapter extends BaseAdapter {
       })
     }
     return j.data
+  }
+
+  /**
+   * 房间详情（标题/主播）。匿名返回空，必须带京东登录 Cookie。
+   * 返回 null 表示取不到（不抛错——详情缺失不影响出流）。
+   * 字段名按社区抓包常见形态防御式解析，待真 Cookie 首验后固化。
+   */
+  async #detail(liveId, cookie) {
+    if (!cookie) return null
+    try {
+      const j = await this.#gateway(
+        'liveDetailToM',
+        { liveId: String(liveId), pageId: 'liveRoom' },
+        cookie
+      )
+      if (j.code !== '0' || !j.data) return null
+      const d = j.data
+      // 常见字段候选：live/liveName/name/title/theme 与 anchor/anchorName/nickName
+      const title =
+        d.title || d.liveName || d.liveTitle || d.name || d.theme || d.roomName || d.liveName || null
+      const anchor =
+        d.anchorName || d.anchor?.name || d.anchor?.nickName || d.nickName || d.authorName || null
+      if (!title && !anchor) return null
+      return { title, anchorName: anchor }
+    } catch {
+      return null // 详情失败不阻断主流程（流照常出）
+    }
   }
 
   /** 从播放数据里取可播地址：优先 m3u8（H5 播放稳），回退 flv */
@@ -135,6 +174,7 @@ export class JdAdapter extends BaseAdapter {
   }
 
   async fetchRoomInfo(url, opts = {}) {
+    const cookie = this.cookieFor(opts.cookie)
     const normalized = await this.normalizeUrl(url)
     const liveId = this.parseRoomId(normalized)
     if (!liveId) {
@@ -146,7 +186,7 @@ export class JdAdapter extends BaseAdapter {
     }
     let data = null
     try {
-      data = await this.#immediatePlay(liveId)
+      data = await this.#immediatePlay(liveId, cookie)
     } catch (err) {
       if (err instanceof AdapterError) {
         // 网关不可达/接口变更：仍保留占位房间，返回可操作错误信息
@@ -166,13 +206,23 @@ export class JdAdapter extends BaseAdapter {
     // status: 1=直播中 2=预告/未开播（slide.next 里见过 status 2）
     const isLive = data.status === 1 || data.status === '1'
     const play = this.#pickPlayUrl(data)
+    // 标题/主播：有 Cookie 调 liveDetailToM 回填；无则给占位，避免格子显示整条分享 URL
+    let title = ''
+    let anchorName = ''
+    const detail = await this.#detail(String(data.liveId || liveId), cookie)
+    if (detail) {
+      title = detail.title || ''
+      anchorName = detail.anchorName || ''
+    }
+    if (!title) title = isLive ? `京东直播 #${data.liveId || liveId}` : ''
     return {
       roomId: String(data.liveId || liveId),
-      title: '', // liveDetailToM 需登录态，1.0 不取标题
-      anchorName: '',
+      title,
+      anchorName,
       isLive,
       shareUrl: normalized,
       raw: { data, play, liveId },
+      _cookieMissing: !cookie && !detail, // 上层可据此提示：补京东 Cookie 可回填标题/在线
     }
   }
 

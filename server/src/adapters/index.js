@@ -35,7 +35,7 @@ export function listAdapters() {
     const Ctor = inst.constructor
     map[key] = {
       ...Ctor.describe(),
-      needCookie: ['douyin', 'kuaishou', 'taobao'].includes(key),
+      needCookie: ['douyin', 'kuaishou', 'taobao', 'jd'].includes(key),
     }
   }
   return map

@@ -1,6 +1,7 @@
 /**
  * 活网集成验证（可选，需能直连平台）：
- *   验证两条真实直播间链接能否“同时加入监控台”→ 同轮采集并存 → 数据入库 → 报表聚合。
+ *   验证三条真实直播间链接（淘宝+京东+抖音）能否“同时加入监控台”
+ *   → 同轮采集并存 → 数据入库 → 报表聚合。
  *
  * 用法： node scripts/live-check.mjs
  * 依赖真实网络与平台接口可用；仅供人工验收，不参与 CI（smoke.mjs 才是离线回归）。
@@ -27,6 +28,11 @@ const LINKS = [
     platform: 'jd',
     url: 'https://3.cn/-31zORBc',
   },
+  {
+    // App 分享短链 → webcast reflow 通道（适配器从 HTML 内嵌 RSC 还原，零 Cookie）
+    platform: 'douyin',
+    url: 'https://v.douyin.com/lFyhuxfcKXk/',
+  },
 ]
 
 registerAdapters()
@@ -34,7 +40,7 @@ const db = getDb()
 const now = nowIso()
 
 console.log(`\n${'='.repeat(60)}`)
-console.log('  活网集成验证：两条真实直播间“同时打开”')
+console.log('  活网集成验证：三条真实直播间（淘宝+京东+抖音）“同时打开”')
 console.log('='.repeat(60))
 
 // 1) 预解析两条链接（模拟“粘贴分享链接 → 自动识别平台并占位/保存”）
