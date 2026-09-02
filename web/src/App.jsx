@@ -17,6 +17,8 @@ export default function App() {
   const [serverOk, setServerOk] = useState(null)
   const [error, setError] = useState('')
   const [lastSync, setLastSync] = useState(null)
+  // 每个格子的「刷新令牌」：++ 后该格子播放器销毁重建（配合 getStream 强制换源）
+  const [refreshTokens, setRefreshTokens] = useState({})
 
   const loadRooms = useCallback(async () => {
     try {

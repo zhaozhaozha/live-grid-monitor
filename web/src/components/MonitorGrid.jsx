@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 const SLOT_COUNT = 9
 
-export default function MonitorGrid({ rooms, liveMap, adThreshold, onRemove, onRefreshRoom, onAdd }) {
+export default function MonitorGrid({ rooms, liveMap, adThreshold, refreshTokens, onRemove, onRefreshRoom, onAdd }) {
   const slots = Array.from({ length: SLOT_COUNT }, (_, i) => {
     const room = rooms.find((r) => r.slot === i)
     return { index: i, room: room || null }
