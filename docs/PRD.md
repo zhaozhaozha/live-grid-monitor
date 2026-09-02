@@ -107,7 +107,7 @@
 | 抖音 | ✅ | ✅ | `stable` | 基于 `webcast/room/web/enter`，社区方案广泛使用 |
 | 快手 | ✅ | ✅ | `experimental` | SSR + GraphQL，建议配置 Cookie |
 | 淘宝直播 | ⚠️ | ⚠️ | `experimental` | mtop Cookie 通道（`appKey=12574478` 老式签名），需 `_m_h5_tk`；升级 mtgsig 后需抓包直链兜底 |
-| 京东直播 | ⚠️ | ❌ | `experimental` | **2026-09 实测 web 端入口已下线**（live.jd.com 跳转 + 老接口关闭），仅识别链接/liveId 占位，画面需抓包直链 |
+| 京东直播 | ✅ | ❌ | `experimental` | **2026-09 实测**：`lives.jd.com` + 网关 `getImmediatePlayToM` 匿名出流（含直播状态）；标题/在线人数走推送通道，1.0 未采 |
 | 微信视频号 | ❌ | ❌ | `stub` | 无公开 Web 接口 |
 | 小红书 | ❌ | ❌ | `stub` | 需 x-s / x-t 动态签名 |
 | m3u8 / flv 直链 | ✅ | ❌ | `stable` | 兜底通道，也是联调通道 |

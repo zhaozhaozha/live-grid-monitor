@@ -32,19 +32,21 @@
 |---|---|---|---|
 | 抖音 | ✅ | ✅ | `stable` |
 | 快手 | ✅ | ✅ | `experimental`（建议配 Cookie） |
-| 淘宝直播 | ⚠️ | ⚠️ | `experimental`（Cookie 通道，详见下方说明） |
-| 京东直播 | ⚠️ | ❌ | `experimental`（web 端入口已下线，见下方说明） |
+| 淘宝直播 | ✅ | ✅ | `experimental`（已实测出流，见下方说明） |
+| 京东直播 | ✅ | ❌ | `experimental`（已实测出流，见下方说明） |
 | m3u8 / flv 直链 | ✅ | ❌ | `stable`（兜底 + 联调通道） |
 | 微信视频号 | ❌ | ❌ | `stub` — 无公开 Web 接口 |
 | 小红书 | ❌ | ❌ | `stub` — 需 x-s / x-t 动态签名 |
 
-### 淘宝 / 京东的 `experimental` 边界
+### 淘宝 / 京东的 `experimental` 边界（2026-09 实测）
 
-- **淘宝**：流地址由 mtop 接口下发，需登录 Cookie（含 `_m_h5_tk`）；部分接口已升级 mtgsig 强签名，
-  老通道被拒时请把抓包得到的直链用「直链」模式接入（不受签名影响）。在线人数视接口返回而定。
-- **京东**：2026 年实测 web 端直播入口已下线（`live.jd.com` 跳转 `jd.com`，老公开接口关闭），
-  服务端无法直接解析流地址 → 请在京东 App / 浏览器抓包拿 `.m3u8`/`.flv` 直链接入。
-  适配器保留链接识别与 liveId 提取，可先作为占位房间保存。
+- **淘宝**：解析 `tbzb.taobao.com/live?liveId=` 等链接 → 调 mtop `roomstudio.live.detail.get`
+  （**匿名两跳 token 交换即可，无需登录 Cookie**）。返回：直播状态、标题、在线人数
+  （`viewCount`）、开播时间（`startTime`）与多档 flv/m3u8 流地址。在线人数可正常采集。
+  若接口升级风控，可注入含 `_m_h5_tk` 的 Cookie 提高成功率。
+- **京东**：直播 web 端在 **`lives.jd.com`**（hash 路由 `#/<liveId>`，3.cn/u.jd.com 短链自动展开），
+  数据走 `api.m.jd.com` 网关 `getImmediatePlayToM`（匿名可调）：返回直播状态与 m3u8/flv 播放地址，
+  出画面 ✅。房间标题与在线人数走平台内部门店推送通道（非 REST），1.0 未采集（online 显示 —）。
 
 > 解析失败不再阻止添加：任何平台的分享链接都会以**占位房间**保存（宫格上显示失败原因），
 > 可稍后补 Cookie 或「刷新流地址」重试；想立刻看到画面就走「直链」模式。

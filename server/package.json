@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "test": "node scripts/smoke.mjs",
+    "live:check": "node scripts/live-check.mjs",
     "poll:once": "node -e \"import('./src/services/poller.js').then(m=>m.tick().then(r=>console.log(JSON.stringify(r,null,2))))\""
   },
   "engines": {

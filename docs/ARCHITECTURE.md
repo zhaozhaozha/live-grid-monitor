@@ -141,8 +141,8 @@ live-grid-monitor/
 |---|---|---|
 | `douyin` | `stable` | 免登录取流（房间 enter 接口），风控时可注入 Cookie |
 | `kuaishou` | `experimental` | 建议配 Cookie |
-| `taobao` | `experimental` | mtop 通道：`appKey=12574478` + `md5(token&t&appKey&data)` 老式签名，出流依赖登录 Cookie（`_m_h5_tk`）。若接口升级 mtgsig 强签名则老通道被拒 → 响应里做了**流地址启发式兜底**（递归抓 .m3u8/.flv），仍失败则引导抓包直链 |
-| `jd` | `experimental` | **实测 web 端直播已下线**：`live.jd.com` 仅剩跳转壳，`functionId=liveDetail` 老接口返回 `the current API does not exist`。适配器保留链接识别 + liveId 提取（可作占位房间），失败指引 → 京东 App / 浏览器抓包直链 |
+| `taobao` | `experimental` | 现行接口 `mtop.roomstudio.live.detail.get/1.0`（tbzb.taobao.com 页面在用）。**mtop 两跳 token 交换**：首访空 token 触发 Set-Cookie 下发 `cookie2`/`_m_h5_tk`/`_m_h5_tk_enc` 三件套 → 完整带回 + md5(`token&t&appKey&data`) 签名重试（缺 `_m_h5_tk_enc`/`cookie2` 会 `ILLEGAL_ACCESS`）。实测**匿名可用、无需登录 Cookie**：返回直播状态（看 `streamStatus`/`roomStatus`，`status` 为 0 也可能在播）、标题、`viewCount` 在线人数、`startTime` 开播时间、多档 flv/m3u8 流（`liveUrl`/`liveUrlList`）。有 Cookie 时注入可提高抗风控能力 |
+| `jd` | `experimental` | **实测（2026-09-03）**：web 端直播在 `lives.jd.com`（Vue SPA，hash 路由 `#/<liveId>`；3.cn / u.jd.com 短链 302 跳转至此）。数据走 `api.m.jd.com/client.action` 网关（`appid=h5-live`），关键接口 `getImmediatePlayToM`（body 传 `liveId`），**匿名可调、无需 eid 指纹与登录**：返回直播状态（`status:1`=直播中）与播放地址（`h5VideoUrl` m3u8 / `videoUrl` flv，单一清晰度）。房间标题/在线人数走内部推送通道（非 REST），1.0 未实现 → 标题留空、在线为 null |
 | `wxchannel` / `xiaohongshu` | `stub` | 无公开 Web 接口 / 需动态签名，仅 URL 识别 + 骨架 |
 | `direct` | `stable` | 兜底：m3u8 / flv 直链，也是所有平台的「抓包接入」通道 |
 

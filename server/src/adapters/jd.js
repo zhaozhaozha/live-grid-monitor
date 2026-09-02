@@ -1,96 +1,137 @@
 import { BaseAdapter, AdapterError } from './base.js'
+import { config } from '../config.js'
 
 /**
  * 京东直播适配器（experimental）
  *
- * 现状（2026-09 调研结论）：
- *  - 京东 web 端直播已收缩：live.jd.com 变成跳转 jd.com 的壳；
- *    历史上社区方案依赖的公开接口 api.m.jd.com/client.action?functionId=liveDetail
- *    已下线（实测返回 "the current API does not exist"），新版仅存在于京东 App / 小程序内。
- *  - 因此本适配器能做到：
- *      ① 识别京东域名的分享链接（live.html?id= / live.jd.com / 3.cn、u.jd.com 短链）
- *      ② 提取直播场次 liveId 并保存为房间（用于列表占位、手动整理）
- *      ③ 仍尝试老版 liveDetail 接口（万一局部环境可用），成功则直接出流
- *      ④ 失败时给出明确可操作的指引：京东 App / 浏览器播放时抓包 -> 用直链适配器接入
+ * 现状（2026-09-03 真机实测）：
+ *  - 京东直播 web 端入口是 lives.jd.com（Vue SPA，hash 路由 #/<liveId>），
+ *    分享短链 3.cn / u.jd.com 会 302 跳转到 lives.jd.com?...#/47986537 形态。
+ *  - 数据走 api.m.jd.com 网关（appid=h5-live），两个关键 functionId：
+ *      getImmediatePlayToM —— 返回正在播/预告的房间与播放地址
+ *        { code:'0', data:{ liveId, status, h5VideoUrl(flv), h5VideoUrl(m3u8),
+ *                           videoUrl, nowTime, slide:{pre,next} } }
+ *        实测匿名可调、无需 eid 指纹、无需登录 Cookie。
+ *      liveDetailToM —— 房间详情（标题/主播等），实测匿名返回空，疑似需登录态。
+ *  - 在线人数走推送通道（type:"get_statistics_result", body.total_viwer），
+ *    非 REST 可轮询，1.0 不实现，onlineCount 返回 null。
+ *  - 播放地址单一清晰度（_fhd），平台未提供更低档，取接口返回的唯一档。
  */
+const GW = 'https://api.m.jd.com/client.action'
+const APPID = 'h5-live'
+
 export class JdAdapter extends BaseAdapter {
   static platform = 'jd'
   static label = '京东直播'
   static stability = 'experimental'
   static urlHints = [
-    'https://h5.m.jd.com/dev/3pbY8ZuCx4ML99uttZKLHC2QcAMn/live.html?id=<liveId>',
+    'https://3.cn/xxxx（App 分享短链，自动展开）',
+    'https://lives.jd.com/#/47986537（直播间详情）',
     'https://live.jd.com/<liveId>',
-    'https://u.jd.com/xxxx（App 分享短链，自动展开）',
-    'https://3.cn/xxxx',
   ]
 
   matchUrl(url) {
-    return /(^|[./:])jd\.com\b|(^|[./:])3\.cn\b/.test(url)
+    // 域名边界：lives.jd.com / live.jd.com 用 .jd.com；3.cn / u.jd.com 前面是 // 或 .
+    return /(^|[\/.:])jd\.com\b|(^|[\/.:])3\.cn\b|(^|[\/.:])u\.jd\.com\b/.test(url)
   }
 
+  /** 支持：3.cn/u.jd.com 短链 / lives.jd.com hash 路由 / live.jd.com/<id> / live.html?id= */
   parseRoomId(url) {
     if (!url) return null
-    // live.html?id=<liveId>  /  ?liveId= / ?room_id= / ?id=
-    const m = url.match(/[?&](?:id|liveId|roomId|room_id)=(\d{4,})/)
-    if (m) return m[1]
-    // live.jd.com/<liveId>
-    const p = url.match(/live\.jd\.com\/(\d{4,})/)
+    // hash 路由：#/47986537?origin=2&appid=jdzb
+    const hash = url.match(/#\/(\d{4,})/)
+    if (hash) return hash[1]
+    // 显式参数：?liveId= / ?id= / ?roomId= / ?room_id=
+    const q = url.match(/[?&](?:liveId|id|roomId|room_id)=(\d{4,})/)
+    if (q) return q[1]
+    // 路径数字：live.jd.com/47986537 / lives.jd.com/47986537
+    const p = url.match(/(?:live|lives)\.jd\.com\/(\d{4,})/)
     if (p) return p[1]
     return null
   }
 
   async normalizeUrl(url) {
     let u = url.trim()
-    if (/(^|\.)3\.cn\//.test(u) || /u\.jd\.com/.test(u)) u = await this.resolveRedirect(u)
+    // 短链只有一跳 302，BaseAdapter.resolveRedirect 足够；u.jd.com 偶尔多跳，多跟几次
+    if (/(^|[\/.:])3\.cn\//.test(u)) {
+      u = await this.resolveRedirect(u)
+    } else if (/u\.jd\.com/.test(u)) {
+      for (let i = 0; i < 4; i++) {
+        const next = await this.resolveRedirect(u)
+        if (next === u) break
+        u = next
+      }
+    }
     return u
   }
 
-  /** 老版 liveDetail 接口（2020 年社区方案，实测已下线，保留尝试以兼容局部环境） */
-  async #liveDetail(liveId) {
-    const url =
-      'https://api.m.jd.com/client.action?' +
-      new URLSearchParams({
-        functionId: 'liveDetail',
-        body: JSON.stringify({ id: liveId, videoType: 1 }),
-        client: 'wh5',
+  /** 调 api.m.jd.com 网关（POST，参数放 form body + query） */
+  async #gateway(functionId, bodyObj, extraQs = {}) {
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), config.requestTimeoutMs)
+    try {
+      const qs = new URLSearchParams({
+        appid: APPID,
+        functionId,
+        t: String(Date.now()),
+        ...extraQs,
       })
-    return this.request(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-        Referer: 'https://live.jd.com/',
-      },
-    })
-  }
-
-  #deprecatedError() {
-    return new AdapterError(
-      '京东直播 web 端入口已下线，服务端无法直接解析流地址',
-      {
-        code: 'API_DEPRECATED',
-        retryable: false,
-        hint: '请在京东 App / 浏览器中打开该直播间，按 F12 抓包拿到 .m3u8/.flv 直链，再用「直链」模式接入。链接本身可作为占位房间保留',
+      const res = await fetch(`${GW}?${qs}`, {
+        method: 'POST',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+          Referer: 'https://lives.jd.com/',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ body: JSON.stringify(bodyObj) }).toString(),
+        signal: ac.signal,
+      })
+      if (!res.ok) {
+        throw new AdapterError(`京东接口请求失败 HTTP ${res.status}`, {
+          code: 'HTTP_ERROR',
+          hint: res.status === 403 ? '疑似触发风控' : '',
+        })
       }
-    )
+      return await res.json()
+    } catch (err) {
+      if (err instanceof AdapterError) throw err
+      if (err.name === 'AbortError') throw new AdapterError('京东接口请求超时', { code: 'TIMEOUT' })
+      throw new AdapterError(`网络异常：${err.message}`, { code: 'NETWORK' })
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
-  #parseBody(body) {
-    // 老接口成功时：{ code:'0', data:{ status:1, h5Pull:'https://...', anchorNick, title, ... } }
-    if (!body || typeof body !== 'object') return null
-    const data = body.data || body
-    const isLive = data.status === 1 || data.status === '1'
-    const streamUrl =
-      (typeof data.h5Pull === 'string' && data.h5Pull.startsWith('http') && data.h5Pull) ||
-      (typeof data.pullUrl === 'string' && data.pullUrl.startsWith('http') && data.pullUrl) ||
-      ''
-    return {
-      roomId: String(data.liveId || data.anchorId || ''),
-      title: data.title || data.roomTitle || '',
-      anchorName: data.anchorNick || data.nickName || data.anchorName || '',
-      avatarUrl: data.anchorImg || data.avatar || '',
-      isLive: Boolean(isLive),
-      streamUrl,
+  /** 现行主接口：即时播放信息（流地址 + 直播状态），匿名可调 */
+  async #immediatePlay(liveId) {
+    const j = await this.#gateway('getImmediatePlayToM', {
+      liveId: String(liveId),
+      isLookupLiveId: true,
+      pageId: 'liveRoom',
+    })
+    if (j.code !== '0' || !j.data) {
+      throw new AdapterError(`京东接口返回异常：code=${j.code} subCode=${j.subCode}`, {
+        code: 'API_ERROR',
+        retryable: true,
+        hint: '可稍后重试；若持续失败，请在浏览器打开直播间抓包用「直链」接入',
+      })
     }
+    return j.data
+  }
+
+  /** 从播放数据里取可播地址：优先 m3u8（H5 播放稳），回退 flv */
+  #pickPlayUrl(data) {
+    const hls = typeof data.h5VideoUrl === 'string' && data.h5VideoUrl.startsWith('http') ? data.h5VideoUrl : ''
+    const flv =
+      typeof data.videoUrl === 'string' && data.videoUrl.startsWith('http')
+        ? data.videoUrl
+        : typeof data.pcVideoUrl === 'string' && data.pcVideoUrl.startsWith('http')
+          ? data.pcVideoUrl
+          : ''
+    if (hls) return { url: hls, format: 'hls' }
+    if (flv) return { url: flv, format: 'flv' }
+    return null
   }
 
   async fetchRoomInfo(url, opts = {}) {
@@ -100,21 +141,15 @@ export class JdAdapter extends BaseAdapter {
       throw new AdapterError('无法从该链接解析出京东直播间 liveId', {
         code: 'PARSE_FAILED',
         retryable: false,
-        hint: '支持：live.html?id=<liveId>、live.jd.com/<liveId>、u.jd.com / 3.cn 短链',
+        hint: '支持：3.cn / u.jd.com 短链、lives.jd.com/#/<liveId>、live.jd.com/<liveId>',
       })
     }
+    let data = null
     try {
-      const res = await this.#liveDetail(liveId)
-      const info = this.#parseBody(res)
-      if (info && info.roomId) {
-        return { ...info, shareUrl: normalized }
-      }
-      throw this.#deprecatedError()
+      data = await this.#immediatePlay(liveId)
     } catch (err) {
-      // 老接口已下线（code '2' / HTTP 错误 / 网络不通）统一给可操作指引
-      if (err instanceof AdapterError && err.code !== 'API_DEPRECATED') {
-        const dep = this.#deprecatedError()
-        // 保留房间占位能力：把 liveId 返回给调用方，但注明接口不可用
+      if (err instanceof AdapterError) {
+        // 网关不可达/接口变更：仍保留占位房间，返回可操作错误信息
         return {
           roomId: liveId,
           title: '',
@@ -122,36 +157,74 @@ export class JdAdapter extends BaseAdapter {
           isLive: false,
           shareUrl: normalized,
           deprecated: true,
-          message: dep.message,
-          hint: dep.hint,
+          message: err.message,
+          hint: err.hint || '请在浏览器打开直播间抓包，用「直链」模式接入播放',
         }
       }
       throw err
     }
+    // status: 1=直播中 2=预告/未开播（slide.next 里见过 status 2）
+    const isLive = data.status === 1 || data.status === '1'
+    const play = this.#pickPlayUrl(data)
+    return {
+      roomId: String(data.liveId || liveId),
+      title: '', // liveDetailToM 需登录态，1.0 不取标题
+      anchorName: '',
+      isLive,
+      shareUrl: normalized,
+      raw: { data, play, liveId },
+    }
   }
 
   async fetchStreamUrl(roomId, opts = {}) {
-    const info = opts.roomInfo || (await this.fetchRoomInfo(`https://live.jd.com/${roomId}`))
-    if (info.deprecated || !info.streamUrl) {
-      throw this.#deprecatedError()
+    let raw
+    if (opts.roomInfo?.raw?.data) {
+      raw = opts.roomInfo.raw
+    } else {
+      const info = await this.fetchRoomInfo(
+        `https://lives.jd.com/#/${roomId}`,
+        opts
+      )
+      if (info.deprecated) {
+        throw new AdapterError(info.message || '京东直播接口暂不可用', {
+          code: 'API_DEPRECATED',
+          retryable: false,
+          hint: info.hint,
+        })
+      }
+      raw = info.raw
     }
-    if (!info.isLive) {
-      throw new AdapterError('主播当前未开播', { code: 'NOT_LIVE', retryable: false })
+    const data = raw.data
+    if (data.status !== 1 && data.status !== '1') {
+      throw new AdapterError('主播当前未开播（预告状态）', { code: 'NOT_LIVE', retryable: false })
+    }
+    const play = raw.play || this.#pickPlayUrl(data)
+    if (!play) {
+      throw new AdapterError('接口未返回可播放的流地址', {
+        code: 'NO_STREAM',
+        retryable: false,
+        hint: '请在浏览器打开该直播间抓包，将 .m3u8/.flv 用「直链」模式接入',
+      })
     }
     return {
-      url: info.streamUrl,
-      format: /\.m3u8/i.test(info.streamUrl) ? 'hls' : 'flv',
-      quality: 'auto',
+      url: play.url,
+      format: play.format,
+      quality: 'fhd', // 平台仅返回单档位，注释说明：服务端只下发该清晰度
       requestedQuality: 'lowest',
       qualities: [],
-      expiresAt: Date.now() + 30 * 60 * 1000,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 拉流地址会轮换，短缓存即可
     }
   }
 
   async fetchMetrics(roomId, opts = {}) {
-    // 京东无公开人气接口；仅在老接口存活时能拿到观看数
-    const info = opts.roomInfo || (await this.fetchRoomInfo(`https://live.jd.com/${roomId}`))
-    const online = info?.onlineCount ?? null
-    return { isLive: Boolean(info.isLive), onlineCount: online, likeCount: null }
+    // 在线人数走平台内部推送通道，无 REST 可轮询；1.0 仅上报是否在播
+    let isLive = false
+    try {
+      const info = opts.roomInfo || (await this.fetchRoomInfo(`https://lives.jd.com/#/${roomId}`, opts))
+      isLive = Boolean(info.isLive)
+    } catch {
+      /* 取不到就按不在播处理 */
+    }
+    return { isLive, onlineCount: null, likeCount: null }
   }
 }
