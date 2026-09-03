@@ -10,8 +10,7 @@
     "dev:web": "npm --workspace web run dev",
     "build": "npm --workspace web run build",
     "start": "npm --workspace server run start",
-    "test": "npm --workspace server run test",
-    "postinstall": "echo '→ 接下来请分别执行：cd server && npm install && cd ../web && npm install'"
+    "test": "npm --workspace server run test"
   },
   "workspaces": ["server", "web"],
   "engines": { "node": ">=18.18" },

@@ -9,6 +9,10 @@ on:
         description: '打包进安装包的 Node 运行时版本'
         required: false
         default: '22.14.0'
+      version:
+        description: '安装包版本号（tag 触发时自动取 tag 名）'
+        required: false
+        default: '1.0.0'
 
 permissions:
   contents: write
@@ -77,8 +81,18 @@ jobs:
           if (-not (Test-Path $iscc)) {
             throw "找不到 ISCC.exe，无法编译安装包"
           }
+
+          # 版本号：tag 触发时取 tag 名（去掉 v 前缀），否则回落到输入值或 1.0.0
+          $version = "1.0.0"
+          if ($env:GITHUB_REF -match '^refs/tags/v(.+)$') {
+            $version = $Matches[1]
+          } elseif ("${{ github.event.inputs.version }}") {
+            $version = "${{ github.event.inputs.version }}"
+          }
+          Write-Host "安装包版本: $version"
+
           Write-Host "使用: $iscc"
-          & $iscc "$PWD\installer\windows-setup.iss"
+          & $iscc "/DMyAppVersion=$version" "$PWD\installer\windows-setup.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
 
       - name: 列出产物

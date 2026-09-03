@@ -2,8 +2,12 @@
 ; 编译: ISCC.exe windows-setup.iss
 ; 产物: installer\output\LiveGridMonitor-<version>-Setup.exe
 
+; 版本号可由 ISCC 的 /DMyAppVersion=x.y.z 覆盖，CI 会从 git tag 自动带入
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
+
 #define MyAppName      "Live Grid Monitor"
-#define MyAppVersion   "1.0.0"
 #define MyAppPublisher "live-grid-monitor"
 #define MyAppURL       "https://github.com/zhaozhaozha/live-grid-monitor"
 #define MyLauncher     "start-silent.vbs"

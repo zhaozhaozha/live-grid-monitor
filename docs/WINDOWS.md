@@ -36,9 +36,39 @@
 
 ---
 
-## 二、三步上手
+## 二、安装方式
 
-### 方式 A：一键启动（推荐）
+### 方式一：安装包（推荐 · 免装 Node）
+
+1. 到 [Releases 页](https://github.com/zhaozhaozha/live-grid-monitor/releases/latest) 下载 `LiveGridMonitor-1.0.0-Setup.exe`
+2. 双击安装（默认装到 `C:\Program Files\LiveGridMonitor`）
+3. 桌面出现「Live Grid Monitor」快捷方式，**双击即启动，浏览器自动打开**
+
+安装包内已内置 Node 运行时、ffmpeg 转码器、前端页面 —— **不需要预装任何东西**。
+
+安装后目录结构：
+
+```
+C:\Program Files\LiveGridMonitor\
+├── runtime\node.exe         内置 Node 运行时
+├── app\
+│   ├── server\src\          后端源码
+│   ├── server\node_modules\ 生产依赖（含 ffmpeg.exe）
+│   ├── server\.env          端口 / Cookie 配置
+│   ├── web\dist\            前端页面
+│   └── data\                SQLite 数据库（首次运行自动建库）
+├── start-silent.vbs         静默启动器（快捷方式指向它）
+├── stop.vbs                 停止服务并回收转码进程
+└── assets\app.ico           快捷方式图标
+```
+
+开始菜单另有四个入口：**停止服务**、**编辑配置**（改端口/Cookie）、**数据目录**（数据库位置）、**卸载**。
+
+> 快捷方式走 `wscript.exe` + `start-silent.vbs`，不是直接指向 `node.exe`，
+> 所以启动时**不会弹出控制台黑窗**；服务 PID 记在 `app\data\server.pid`，
+> 停止时能连同 ffmpeg 转码子进程一起回收。
+
+### 方式二：源码运行（需装 Node）
 
 1. 把整个项目目录拷贝到 Windows 机器上（或 `git clone`）
 2. **双击 `start-windows.bat`**
@@ -46,7 +76,7 @@
 
 后续再启动，脚本会跳过已完成的步骤，秒开。
 
-### 方式 B：命令行
+命令行等价操作：
 
 ```bat
 npm install        :: 首次：安装依赖（根目录，走 npm workspaces）
@@ -122,23 +152,43 @@ TAOBAO_COOKIE=xxxx
 
 ---
 
-## 四、是否需要进一步封装成 exe？
+## 四、安装包是怎么做出来的
 
-| 方案 | 适用人群 | 体积 | 工作量 |
-|------|---------|------|--------|
-| **A. 一键 bat（当前）** | 自己用、团队内技术同学 | — | ✅ 已完成 |
-| **B. Node SEA 单文件 exe** | 想给非技术同事，免装 Node | ~120MB | 约 1-2 小时 |
-| **C. Electron 桌面壳** | 要无地址栏窗口、托盘、开机自启 | ~180MB | 半天+ |
-| **D. Docker** | 服务器常驻、多人共享 | 镜像 ~300MB | 约 1 小时 |
+**已落地方案：GitHub Actions + Inno Setup 安装包。**
 
-**建议**：如果只是自己或技术同事在 Windows 上用，**方案 A 完全够**，别为「看起来像个软件」付出打包维护成本。
+macOS 上无法运行 Inno Setup（Windows 专属），所以构建放在 GitHub 的
+`windows-latest` runner 上真实执行 —— 这样产出的 `setup.exe` 是能装能跑的真东西，
+而不是凭空生成的产物。
 
-方案 B 的已知难点（若后续要做，先记着）：
+触发方式：推送 `v*` 标签，或在 Actions 页面手动 `workflow_dispatch`。
 
-- Node SEA 不支持 `require` 原生模块 → 必须走 `node:sqlite` 分支，需锁 Node 22.5+
-- `ffmpeg.exe` **无法打进 exe**，只能作为同目录附属文件分发
-- `web/dist` 需作为外部目录随行，或用 `sea-config.json` 的 `assets` 内联
-- 沙箱是 macOS，产出的是 `.exe` 但**无法在本机实跑验证**，需在 Windows 上回归
+```
+.github/workflows/build-windows-installer.yml
+  ↓ 装依赖 → 构建前端 → 组装 payload → 校验关键文件
+  ↓ ISCC 编译 installer/windows-setup.iss
+  ↓ 上传 artifact + 发布到 Release
+```
+
+### 为什么没走其他方案
+
+| 方案 | 结论 |
+|------|------|
+| **Inno Setup 安装包（已选）** | 免装 Node、桌面快捷方式、开始菜单、卸载项一应俱全，维护成本最低 |
+| Node SEA 单文件 exe | 不支持 require 原生模块；`ffmpeg.exe` 和 `web/dist` 都塞不进单文件，最终还是要外挂一堆附属文件，收益有限 |
+| Electron 桌面壳 | 体积翻倍到 ~180MB，只为换一个无地址栏窗口，不划算 |
+| Docker | Windows 需 Docker Desktop + WSL2，对个人用户太重 |
+
+### 自己构建
+
+```bash
+# 推送标签即触发 Windows 构建
+git tag v1.0.1 && git push origin v1.0.1
+
+# 或在 GitHub Actions 页面手动触发（可指定 Node 版本）
+```
+
+构建产物在 Actions 运行页的 Artifacts 区（`LiveGridMonitor-Setup`），
+打标签触发时会自动附加到对应 Release。
 
 ---
 
