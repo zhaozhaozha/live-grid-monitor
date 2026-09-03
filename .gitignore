@@ -21,3 +21,10 @@ web/node_modules
 
 # vite 临时文件
 *.timestamp-*.mjs
+
+# Windows 安装包构建产物（由 GitHub Actions 生成）
+payload/
+installer/output/
+
+# 环境配置模板不忽略（installer/app.env 是分发用的模板，不是真实密钥）
+!installer/app.env
