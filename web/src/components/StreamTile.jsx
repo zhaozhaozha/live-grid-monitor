@@ -17,6 +17,7 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
   const [error, setError] = useState('')
   const [stream, setStream] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [autoTry, setAutoTry] = useState(0) // 播放中断后的自动重连次数
   const [expanded, setExpanded] = useState(false)
 
   const ad = useAdDetector(videoRef, room.id, {
@@ -28,12 +29,14 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
   useEffect(() => {
     let player = null
     let cancelled = false
+    let retrying = false
+    let timer = null
 
     setPhase('loading')
     setError('')
 
     api
-      .getStream(room.id)
+      .getStream(room.id, autoTry > 0) // 自动重连走 force，强制换新流地址（旧地址 auth_key 常已过期）
       .then((s) => {
         if (cancelled) return
         setStream(s)
@@ -45,6 +48,16 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
           format: s.format, // relay 改写后 URL 无 .flv 后缀，需显式告知格式
           onError: (msg) => {
             if (cancelled) return
+            // HEVC 是编码边界（换浏览器才可解），重拉无意义 → 不上屏噪声错误、不做自动重试
+            const terminal = /HEVC|H\.265/i.test(msg)
+            if (!terminal && autoTry < 3 && !retrying) {
+              // 直播流地址中途过期/上游抖动：自动 force 重拉，退避递增（2s→4s→8s）
+              retrying = true
+              setPhase('loading')
+              setError('信号中断，重连中…')
+              timer = setTimeout(() => setAutoTry((a) => a + 1), 2000 * Math.pow(2, autoTry))
+              return
+            }
             setError(msg)
             setPhase('error')
           },
@@ -59,9 +72,15 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
 
     return () => {
       cancelled = true
+      clearTimeout(timer)
       player?.destroy()
     }
-  }, [room.id, reloadKey])
+  }, [room.id, reloadKey, autoTry])
+
+  const retryNow = () => {
+    setAutoTry(0) // 手动重试重置退避计数
+    setReloadKey((k) => k + 1)
+  }
 
   const isAd = ad.state === 'AD'
 
@@ -77,7 +96,7 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
             {phase === 'loading' && <span className="spinner" />}
             <p>{error || STATE_LABEL[phase]}</p>
             {phase === 'error' && (
-              <button className="btn btn--xs" onClick={() => setReloadKey((k) => k + 1)}>
+              <button className="btn btn--xs" onClick={retryNow}>
                 重试
               </button>
             )}
@@ -106,7 +125,7 @@ export default function StreamTile({ room, live, adThreshold, refreshToken = 0, 
       </div>
 
       <div className="tile__actions">
-        <button title="重新拉流" onClick={() => setReloadKey((k) => k + 1)}>⟳</button>
+        <button title="重新拉流" onClick={retryNow}>⟳</button>
         <button title="强制刷新流地址" onClick={onRefresh}>⇪</button>
         <button
           title={isAd ? '判定为讲解（人工校正：误报）' : '标记为广告（人工校正：漏报）'}
