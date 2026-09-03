@@ -1,4 +1,4 @@
-' Live Grid Monitor —— 静默启动器
+﻿' Live Grid Monitor —— 静默启动器
 ' 桌面/开始菜单快捷方式调用方式： wscript.exe "start-silent.vbs"
 ' 行为：后台拉起 node 服务（无控制台窗口）→ 记录 PID → 自动打开浏览器
 

@@ -1,4 +1,4 @@
-; Live Grid Monitor —— Windows 安装包脚本（Inno Setup 6）
+﻿; Live Grid Monitor —— Windows 安装包脚本（Inno Setup 6）
 ; 编译: ISCC.exe windows-setup.iss
 ; 产物: installer\output\LiveGridMonitor-<version>-Setup.exe
 
@@ -41,7 +41,8 @@ LicenseFile=..\LICENSE
 ChangesEnvironment=yes
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 自带精简中文语言包：runner 上的 Inno Setup 常是精简版，不带 Languages 目录
+Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]

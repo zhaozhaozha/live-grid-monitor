@@ -1,4 +1,4 @@
-' Live Grid Monitor —— 停止服务
+﻿' Live Grid Monitor —— 停止服务
 ' 结束 node 主进程及其 ffmpeg 转码子进程，并清理 PID 文件
 
 Option Explicit
