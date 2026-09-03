@@ -15,9 +15,12 @@
 # 用法: bash installer/build-payload.sh [node版本]
 set -euo pipefail
 
+# 注意：必须放在 installer/ 下。ISCC 编译 .iss 时，[Files] 里的相对路径
+# 以 .iss 所在目录为基准，若 payload 放在仓库根会报
+# "No files found matching ...\installer\payload\*"
 NODE_VERSION="${1:-22.14.0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PAYLOAD="$ROOT/payload"
+PAYLOAD="$ROOT/installer/payload"
 
 echo "==> 组装 payload（Node ${NODE_VERSION}）"
 

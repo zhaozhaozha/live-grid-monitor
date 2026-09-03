@@ -54,20 +54,20 @@ jobs:
               missing=1
             fi
           }
-          check payload/runtime/node.exe
-          check payload/app/server/src/index.js
-          check payload/app/server/node_modules/ffmpeg-static/ffmpeg.exe
-          check payload/app/web/dist/index.html
-          check payload/start-silent.vbs
-          check payload/stop.vbs
-          check payload/assets/app.ico
-          check payload/app/server/.env
+          check installer/payload/runtime/node.exe
+          check installer/payload/app/server/src/index.js
+          check installer/payload/app/server/node_modules/ffmpeg-static/ffmpeg.exe
+          check installer/payload/app/web/dist/index.html
+          check installer/payload/start-silent.vbs
+          check installer/payload/stop.vbs
+          check installer/payload/assets/app.ico
+          check installer/payload/app/server/.env
           if [ "$missing" -ne 0 ]; then
             echo "::error::payload 缺少关键文件，终止构建"
             exit 1
           fi
           echo "==> Node 运行时版本"
-          payload/runtime/node.exe --version
+          installer/payload/runtime/node.exe --version
 
       - name: 编译安装包（Inno Setup）
         shell: pwsh
