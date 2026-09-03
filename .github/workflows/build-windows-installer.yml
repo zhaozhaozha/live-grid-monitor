@@ -139,13 +139,25 @@ jobs:
           if ($lnk.Count -eq 0) { throw "未找到桌面快捷方式" }
           Write-Host "  桌面快捷方式: $($lnk[0].FullName)"
 
+          Write-Host "==> 数据库驱动与运行时探测"
+          if (Test-Path (Join-Path $installDir "app\server\node_modules\better-sqlite3")) {
+            Write-Host "  better-sqlite3 已安装，将优先使用它"
+          } else {
+            Write-Host "  better-sqlite3 未安装，将依赖内置 node:sqlite"
+          }
+          $probe = & $node -e "try{const s=require('node:sqlite');console.log('node:sqlite OK: '+Object.keys(s).join(','))}catch(e){console.log('node:sqlite FAIL: '+e.message)}" 2>&1
+          Write-Host "  $probe"
+
           Write-Host "==> 启动服务并做健康检查"
           $node  = Join-Path $installDir "runtime\node.exe"
           $entry = Join-Path $installDir "app\server\src\index.js"
+          $outLog = Join-Path $env:RUNNER_TEMP "lgm-out.log"
+          $errLog = Join-Path $env:RUNNER_TEMP "lgm-err.log"
           $svc = Start-Process -FilePath $node -ArgumentList "`"$entry`"" `
-                   -WorkingDirectory $installDir -PassThru -WindowStyle Hidden
+                   -WorkingDirectory $installDir -PassThru -WindowStyle Hidden `
+                   -RedirectStandardOutput $outLog -RedirectStandardError $errLog
           try {
-            Start-Sleep -Seconds 8
+            Start-Sleep -Seconds 10
             $health = Invoke-WebRequest -Uri "http://localhost:8787/api/health" -UseBasicParsing -TimeoutSec 20
             Write-Host "  /api/health → $($health.Content)"
             if ($health.Content -notmatch '"ok":true') { throw "健康检查未返回 ok" }
@@ -153,6 +165,12 @@ jobs:
             $page = Invoke-WebRequest -Uri "http://localhost:8787/" -UseBasicParsing -TimeoutSec 20
             Write-Host "  前端页面 → HTTP $($page.StatusCode)，$($page.Content.Length) bytes"
             if ($page.Content -notmatch 'id="root"') { throw "前端页面缺少 #root 挂载点" }
+          } catch {
+            Write-Host "=== 服务 stdout ==="
+            if (Test-Path $outLog) { Get-Content $outLog }
+            Write-Host "=== 服务 stderr ==="
+            if (Test-Path $errLog) { Get-Content $errLog }
+            throw
           } finally {
             Stop-Process -Id $svc.Id -Force -ErrorAction SilentlyContinue
           }
