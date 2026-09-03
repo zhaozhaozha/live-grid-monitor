@@ -1,6 +1,15 @@
 import { Readable } from 'node:stream'
 import { getDb } from '../db/index.js'
 import { getPlayableStream } from '../services/streamResolver.js'
+import {
+  codecOf,
+  cachedCodec,
+  rememberCodec,
+  probeFlvCodecid,
+  resolveTaobaoM3u8,
+  spawnTranscoder,
+  killTranscoder,
+} from '../services/transcode.js'
 import { AdapterError } from '../adapters/base.js'
 import { config } from '../config.js'
 
@@ -122,6 +131,25 @@ export default async function streamsRoutes(app) {
     const db = getDb()
     const room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(req.params.roomId)
     if (!room) return reply.code(404).send({ error: '房间不存在' })
+
+    // —— HEVC 判定：编码缓存未命中且为 taobao 房时，探一次上游 flv codecid ——
+    // 判定 12(HEVC) 的房间浏览器无法直解，转入 ffmpeg 转码分支（m3u8 → H.264）。
+    // 其它平台/未知编码走原直连 relay（错误路径不变，由前端提示兜底）。
+    let codec = cachedCodec(room.id)
+    if (codec === codecOf.UNKNOWN && room.platform === 'taobao') {
+      try {
+        const s = await getPlayableStream(room, {})
+        if (s.format === 'flv') codec = await probeFlvCodecid(s.url, { referer: PLATFORM_REFERER.taobao })
+      } catch {
+        codec = codecOf.UNKNOWN // 取流失败等：交给直连分支如实报错
+      }
+      if (codec === codecOf.AVC || codec === codecOf.HEVC) rememberCodec(room.id, codec)
+    }
+    if (codec === codecOf.HEVC) {
+      return serveTranscoded(room, req, reply)
+    }
+
+    // —— 直连 relay（H.264 / 未知编码）——
     const ac = new AbortController()
     let res
     try {
@@ -147,6 +175,41 @@ export default async function streamsRoutes(app) {
     nodeStream.on('error', cleanup)
     return reply.send(nodeStream)
   })
+
+  /**
+   * HEVC 房间转码回传：拉上游 m3u8，ffmpeg 实时转 H.264 FLV 后原样交给浏览器。
+   * 输出为纯视频流（-an），mpegts.js 直解，与直连分支对前端完全透明。
+   */
+  async function serveTranscoded(room, req, reply) {
+    try {
+      const m3u8 = await resolveTaobaoM3u8(room)
+      if (!m3u8) {
+        return reply.code(502).send({ error: '直播间为 HEVC 编码，但未获取到可转码的 m3u8 源流' })
+      }
+      const { proc, stream: out } = spawnTranscoder(m3u8, { referer: PLATFORM_REFERER.taobao })
+      let closed = false
+      const cleanup = () => {
+        if (closed) return
+        closed = true
+        killTranscoder(proc)
+        try { out.destroy() } catch {}
+      }
+      req.raw.on('close', cleanup)
+      out.on('error', cleanup)
+      out.on('end', cleanup)
+      // ffmpeg 意外退出（m3u8 过期/分片 403）：结束流 → 浏览器触发自动重连自愈
+      proc.once('exit', (code) => {
+        if (!closed) cleanup()
+      })
+      reply.header('Access-Control-Allow-Origin', '*')
+      reply.header('Cache-Control', 'no-store')
+      reply.header('Content-Type', 'video/x-flv')
+      reply.header('X-Live-Transcode', 'ffmpeg')
+      return reply.send(out)
+    } catch (err) {
+      return reply.code(502).send({ error: `转码失败：${err.message}` })
+    }
+  }
 
   /** 取某房间的可播放流地址（带缓存）——FLV 自动改写为本地 relay URL */
   app.get('/:roomId', async (req, reply) => {
