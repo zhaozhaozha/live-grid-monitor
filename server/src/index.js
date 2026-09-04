@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import staticPlugin from '@fastify/static'
@@ -56,6 +56,13 @@ export async function start() {
   }
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// 注意：不能用 `file://${process.argv[1]}` 手动拼接。
+// Windows 下 argv[1] 是 C:\a\b\index.js，拼出来是 file://C:\a\b\index.js，
+// 而 import.meta.url 是 file:///C:/a/b/index.js —— 两者永不相等，
+// 会导致服务在 Windows 上启动后直接静默退出（macOS 上路径恰好一致，不会暴露）。
+const isEntrypoint =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isEntrypoint) {
   start()
 }

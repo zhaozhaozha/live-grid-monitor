@@ -140,32 +140,53 @@ jobs:
           Write-Host "  桌面快捷方式: $($lnk[0].FullName)"
 
           Write-Host "==> 数据库驱动与运行时探测"
+          $node  = Join-Path $installDir "runtime\node.exe"
+          $entry = Join-Path $installDir "app\server\src\index.js"
           if (Test-Path (Join-Path $installDir "app\server\node_modules\better-sqlite3")) {
             Write-Host "  better-sqlite3 已安装，将优先使用它"
           } else {
             Write-Host "  better-sqlite3 未安装，将依赖内置 node:sqlite"
           }
           $probe = & $node -e "try{const s=require('node:sqlite');console.log('node:sqlite OK: '+Object.keys(s).join(','))}catch(e){console.log('node:sqlite FAIL: '+e.message)}" 2>&1
-          Write-Host "  $probe"
+          Write-Host "  node:sqlite → $probe"
+          & $node --version
 
           Write-Host "==> 启动服务并做健康检查"
-          $node  = Join-Path $installDir "runtime\node.exe"
-          $entry = Join-Path $installDir "app\server\src\index.js"
+          # 用 127.0.0.1 而非 localhost：服务只监听 IPv4，localhost 可能先解析到 ::1
+          $base = "http://127.0.0.1:8787"
           $outLog = Join-Path $env:RUNNER_TEMP "lgm-out.log"
           $errLog = Join-Path $env:RUNNER_TEMP "lgm-err.log"
+          Remove-Item $outLog,$errLog -Force -ErrorAction SilentlyContinue
+
           $svc = Start-Process -FilePath $node -ArgumentList "`"$entry`"" `
                    -WorkingDirectory $installDir -PassThru -WindowStyle Hidden `
                    -RedirectStandardOutput $outLog -RedirectStandardError $errLog
           try {
-            Start-Sleep -Seconds 10
-            $health = Invoke-WebRequest -Uri "http://localhost:8787/api/health" -UseBasicParsing -TimeoutSec 20
-            Write-Host "  /api/health → $($health.Content)"
-            if ($health.Content -notmatch '"ok":true') { throw "健康检查未返回 ok" }
+            # 轮询等待服务就绪，比固定 sleep 更稳，也便于区分「启动慢」与「启动崩」
+            $ok = $false
+            for ($i = 1; $i -le 15; $i++) {
+              Start-Sleep -Seconds 2
+              if ($svc.HasExited) {
+                throw "服务进程已退出（退出码 $($svc.ExitCode)），说明启动就崩了"
+              }
+              try {
+                $r = Invoke-WebRequest -Uri "$base/api/health" -UseBasicParsing -TimeoutSec 5
+                if ($r.Content -match '"ok":true') {
+                  Write-Host "  /api/health → $($r.Content)"
+                  $ok = $true
+                  break
+                }
+              } catch { }
+              Write-Host "  第 $i 次探测未就绪，继续等待..."
+            }
+            if (-not $ok) { throw "健康检查在 30 秒内未通过" }
 
-            $page = Invoke-WebRequest -Uri "http://localhost:8787/" -UseBasicParsing -TimeoutSec 20
+            $page = Invoke-WebRequest -Uri "$base/" -UseBasicParsing -TimeoutSec 20
             Write-Host "  前端页面 → HTTP $($page.StatusCode)，$($page.Content.Length) bytes"
             if ($page.Content -notmatch 'id="root"') { throw "前端页面缺少 #root 挂载点" }
           } catch {
+            Write-Host "=== 服务进程状态 ==="
+            Write-Host "  HasExited=$($svc.HasExited) ExitCode=$($svc.ExitCode)"
             Write-Host "=== 服务 stdout ==="
             if (Test-Path $outLog) { Get-Content $outLog }
             Write-Host "=== 服务 stderr ==="
