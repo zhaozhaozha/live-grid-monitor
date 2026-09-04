@@ -2,10 +2,19 @@
 
 ## 结论先行
 
-**不需要封装成桌面应用(exe)，也不需要 Electron。**
+**不需要 Electron。** 两种用法，按需选择：
 
-本项目的后端是单端口设计：`server` 在 `8787` 端口同时提供 API 和托管前端构建产物（`web/dist`）。
-所以 Windows 上只有**一个 Node 进程**在跑，双击 `start-windows.bat` 即可，浏览器访问 `http://localhost:8787`。
+| 场景 | 方式 | 是否需要 Node |
+|------|------|--------------|
+| **日常使用 / 给同事** | 安装包（[Release 页](https://github.com/zhaozhaozha/live-grid-monitor/releases/latest) 下载 `LiveGridMonitor-x.y.z-Setup.exe`） | ❌ 内置运行时 |
+| **改代码 / 二次开发** | `start-windows.bat` | ✅ 需 Node ≥22.5 |
+
+两者跑的是同一套东西：后端是单端口设计，`server` 在 `8787` 端口同时提供 API 和托管前端构建产物（`web/dist`）。
+所以运行时只有**一个 Node 进程**，浏览器访问 `http://localhost:8787`。
+
+> 安装包是在 GitHub Actions 的 windows-latest runner 上真实构建的，
+> 每次发版都会**静默安装 → 检查文件 → 检查桌面快捷方式 → 拉起服务做健康检查**，
+> 冒烟测试不通过就不会发布。
 
 ```
 ┌─────────────────────────────┐
@@ -40,11 +49,13 @@
 
 ### 方式一：安装包（推荐 · 免装 Node）
 
-1. 到 [Releases 页](https://github.com/zhaozhaozha/live-grid-monitor/releases/latest) 下载 `LiveGridMonitor-1.0.0-Setup.exe`
+1. 到 [Releases 页](https://github.com/zhaozhaozha/live-grid-monitor/releases/latest) 下载最新的 `LiveGridMonitor-<版本>-Setup.exe`
 2. 双击安装（默认装到 `C:\Program Files\LiveGridMonitor`）
 3. 桌面出现「Live Grid Monitor」快捷方式，**双击即启动，浏览器自动打开**
 
-安装包内已内置 Node 运行时、ffmpeg 转码器、前端页面 —— **不需要预装任何东西**。
+安装包内已内置 Node 运行时、ffmpeg 转码器、前端页面和 SQLite 驱动 —— **不需要预装任何东西**。
+免装 Node 的关键在于 payload 里直接放了一份官方的 `node.exe`，快捷方式指向 `wscript.exe` + `start-silent.vbs`，
+用 WMI `Win32_Process.Create` 启动（可拿到 PID 便于干净停止，且 `ShowWindow=0` 无控制台黑窗）。
 
 安装后目录结构：
 
@@ -150,7 +161,33 @@ KUAISHOU_COOKIE=xxxx
 TAOBAO_COOKIE=xxxx
 ```
 
----
+### 7. 服务装完却起不来（已修复，记录以防回退）
+
+曾出现过「安装包能装上、快捷方式也在，但双击后浏览器打不开」的情况。
+根因是入口守卫**手动拼接** `file://` 前缀：
+
+```js
+// ❌ 错误写法
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) start()
+```
+
+| 平台 | `argv[1]` | 拼出的字符串 | 真实 `import.meta.url` | 结果 |
+|------|-----------|-------------|----------------------|------|
+| macOS | `/a/b/index.js` | `file:///a/b/index.js` | `file:///a/b/index.js` | ✅ 恰好相等 |
+| Windows | `C:\a\b\index.js` | `file://C:\a\b\index.js` | `file:///C:/a/b/index.js` | ❌ 永不相等 |
+
+Windows 上因此 `start()` 从未被调用，node 进程启动后直接退出码 0，
+端口无人监听 —— **而这个 bug 在 macOS 上永远不会暴露**。
+
+正确写法是交给平台感知的 API：
+
+```js
+import { pathToFileURL } from 'node:url'
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) start()
+```
+
+> 通用规则：任何拿 `import.meta.url` 和文件路径做比较的地方，
+> 都必须走 `pathToFileURL`，不要手动加 `file://`。
 
 ## 四、安装包是怎么做出来的
 
