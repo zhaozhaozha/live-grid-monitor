@@ -7,7 +7,8 @@ import staticPlugin from '@fastify/static'
 
 import { config } from './config.js'
 import { getDb } from './db/index.js'
-import { startPoller } from './services/poller.js'
+import { startPoller, recoverStaleSessions } from './services/poller.js'
+import { startAdSampler, samplerDebug } from './services/adSampler.js'
 import { registerAdapters } from './adapters/index.js'
 import roomsRoutes from './routes/rooms.js'
 import streamsRoutes from './routes/streams.js'
@@ -30,6 +31,12 @@ export async function buildServer({ logger = true } = {}) {
     platforms: Object.keys((await import('./adapters/index.js')).listAdapters()),
   }))
 
+  // 广告采样器运行状态：排查「为什么没识别到广告」时第一手信息
+  app.get('/api/ad-sampler', async () => ({
+    enabled: process.env.AD_SAMPLER_ENABLED !== '0',
+    samplers: samplerDebug(),
+  }))
+
   await app.register(roomsRoutes, { prefix: '/api/rooms' })
   await app.register(streamsRoutes, { prefix: '/api/streams' })
   await app.register(metricsRoutes, { prefix: '/api/metrics' })
@@ -47,7 +54,10 @@ export async function buildServer({ logger = true } = {}) {
 
 export async function start() {
   const app = await buildServer({ logger: { level: config.logLevel } })
+  // 先回收上次进程遗留的悬挂场次，再开新的采集——否则停机时长会被算进直播时长
+  recoverStaleSessions()
   startPoller()
+  startAdSampler()
   try {
     await app.listen({ port: config.port, host: config.host })
   } catch (err) {

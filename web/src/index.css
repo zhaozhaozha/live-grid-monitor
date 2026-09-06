@@ -80,6 +80,8 @@ body {
 .btn--primary:hover:not(:disabled) { background: #3d8bf0; border-color: #3d8bf0; }
 .btn--ghost { background: transparent; }
 .btn--xs { padding: 3px 9px; font-size: 12px; }
+/* 报表表格操作列：明细/导出两个按钮并排不换行 */
+.row-actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 
 .chip {
   padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;

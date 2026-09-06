@@ -35,6 +35,12 @@ export const config = {
   pollIntervalSec: Number(env('POLL_INTERVAL_SEC', '30')),
   /** 连续多少次轮询判定为离线才真正结束本场直播（容忍短暂断流） */
   offlineGraceCount: Number(env('OFFLINE_GRACE_COUNT', '3')),
+  /**
+   * 单场直播时长上限（秒）。超过则强制切场。
+   * 防止服务重启/悬挂场次被拼成几十小时的假场次（曾出现 40h 一场）。
+   * 真实直播几乎不会连续超过 24h，超时通常是关场逻辑漏了。
+   */
+  maxSessionSec: Number(env('MAX_SESSION_SEC', '86400')),
   /** 流地址缓存有效期（秒） */
   streamCacheTtlSec: Number(env('STREAM_CACHE_TTL_SEC', '1800')),
 

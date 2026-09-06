@@ -99,7 +99,18 @@ export default function ReportPanel({ rooms, onBack }) {
               <td className={`num ${r.adRatio > 0.4 ? 'warn' : ''}`}>
                 {(r.adRatio * 100).toFixed(1)}%
               </td>
-              <td><button className="btn btn--xs" onClick={() => openDetail(r.id)}>明细</button></td>
+              <td className="row-actions">
+                <button className="btn btn--xs" onClick={() => openDetail(r.id)}>明细</button>
+                <a
+                  className="btn btn--xs"
+                  href={`${API_BASE}/api/reports/room/${r.id}/export.csv?days=${days}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="导出该直播间的完整报表（汇总 + 场次明细 + 广告时段明细）"
+                >
+                  导出
+                </a>
+              </td>
             </tr>
           ))}
           {!byRoom.length && (
@@ -108,18 +119,27 @@ export default function ReportPanel({ rooms, onBack }) {
         </tbody>
       </table>
 
-      {detail && <RoomDetail detail={detail} onClose={() => setDetail(null)} />}
+      {detail && <RoomDetail detail={detail} days={days} onClose={() => setDetail(null)} />}
     </div>
   )
 }
 
-function RoomDetail({ detail, onClose }) {
+function RoomDetail({ detail, days, onClose }) {
   const { room, sessions, adSegments } = detail
   return (
     <div className="modal" onClick={onClose}>
       <div className="modal__panel modal__panel--wide" onClick={(e) => e.stopPropagation()}>
         <header className="modal__head">
           <h3>{room.anchor_name || room.title || '直播间明细'}</h3>
+          <a
+            className="btn"
+            href={`${API_BASE}/api/reports/room/${room.id}/export.csv?days=${days}`}
+            target="_blank"
+            rel="noreferrer"
+            title="导出该直播间报表（CSV，Excel 可直接打开）"
+          >
+            导出本房间报表
+          </a>
           <button className="btn btn--ghost" onClick={onClose}>✕</button>
         </header>
 

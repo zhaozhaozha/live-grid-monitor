@@ -117,7 +117,7 @@ async function pollRoom(room) {
   ).run(info.title || room.title, info.anchorName || room.anchor_name, info.avatarUrl || room.avatar_url, info.roomId || room.room_id, ts, room.id)
 
   // 场次生命周期
-  const openSession = db
+  let openSession = db
     .prepare('SELECT * FROM live_sessions WHERE room_id = ? AND end_at IS NULL ORDER BY start_at DESC LIMIT 1')
     .get(room.id)
 
@@ -125,6 +125,14 @@ async function pollRoom(room) {
 
   if (isLive) {
     offlineStreak.set(room.id, 0)
+    // 单场超时强制切场：防止服务重启/漏关场把场次累积成几十小时的假数据
+    if (
+      openSession &&
+      Date.now() - new Date(openSession.start_at).getTime() > config.maxSessionSec * 1000
+    ) {
+      closeSession(openSession)
+      openSession = null
+    }
     if (!openSession) {
       sessionId = uid('ses')
       db.prepare(
@@ -149,12 +157,16 @@ async function pollRoom(room) {
   return { roomId: room.id, isLive, online, sessionId }
 }
 
-/** 关场：结算时长、峰值/均值在线、广告统计 */
-export function closeSession(session) {
+/**
+ * 关场：结算时长、峰值/均值在线、广告统计
+ * @param {object} session
+ * @param {string} [endAtIso] 指定下播时刻（服务重启回收悬挂场次时用），默认此刻
+ */
+export function closeSession(session, endAtIso) {
   const db = getDb()
-  const endAt = nowIso()
+  const endAt = endAtIso || nowIso()
   const start = new Date(session.start_at).getTime()
-  const end = Date.now()
+  const end = new Date(endAt).getTime()
   const durationSec = Math.max(0, Math.round((end - start) / 1000))
 
   const agg = db
@@ -198,5 +210,27 @@ export function closeAllSessions(roomId) {
     .prepare('SELECT * FROM live_sessions WHERE room_id = ? AND end_at IS NULL')
     .all(roomId)
   for (const s of rows) closeSession(s)
+  return rows.length
+}
+
+/**
+ * 服务启动时回收所有悬挂场次（end_at IS NULL）。
+ *
+ * 不回收的话，上次进程结束时的在播场次会一直挂着，等下次被判定下播时
+ * 用「现在」结算 —— 于是两场之间隔着几天的停机时间也被算进直播时长，
+ * 实测出现过单场 40 小时的假数据。
+ *
+ * 下播时刻取该场次最后一条采样时间，比「现在」更接近真实下播点。
+ */
+export function recoverStaleSessions() {
+  const db = getDb()
+  const rows = db.prepare('SELECT * FROM live_sessions WHERE end_at IS NULL').all()
+  for (const s of rows) {
+    const last = db
+      .prepare('SELECT MAX(ts) AS ts FROM metrics_samples WHERE session_id = ?')
+      .get(s.id)
+    closeSession(s, last?.ts || s.start_at)
+  }
+  if (rows.length) console.log(`[poller] 启动时回收 ${rows.length} 个悬挂场次`)
   return rows.length
 }
